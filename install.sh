@@ -34,7 +34,19 @@ fi
 # Build iPod Gadget kernel modules
 echo "Building iPod Gadget kernel modules..."
 cd /opt/ipod-gadget/gadget
-make
+
+# Detect architecture and set appropriate flags
+ARCH=$(uname -m)
+if [[ "$ARCH" == "aarch64" ]]; then
+    echo "Detected ARM64 architecture, cross-compiling appropriately..."
+    make ARCH=arm64 KERNEL_PATH=/usr/src/linux-headers-$(uname -r)
+elif [[ "$ARCH" == "armv7l" || "$ARCH" == "armv6l" ]]; then
+    echo "Detected ARM architecture, cross-compiling appropriately..."
+    make ARCH=arm KERNEL_PATH=/usr/src/linux-headers-$(uname -r)
+else
+    echo "Using default compilation for architecture: $ARCH"
+    make KERNEL_PATH=/usr/src/linux-headers-$(uname -r)
+fi
 
 # Clone Go client app repository
 echo "Cloning iPod client repository..."
