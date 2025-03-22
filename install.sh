@@ -133,7 +133,8 @@ mkdir -p /opt/bt-ipod-bridge
 
 # Install bridge script
 echo "Installing Bluetooth to iPod bridge script..."
-cp "$(pwd)/bt-ipod-bridge.py" /opt/bt-ipod-bridge/
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+cp "$SCRIPT_DIR/bt-ipod-bridge.py" /opt/bt-ipod-bridge/
 chmod +x /opt/bt-ipod-bridge/bt-ipod-bridge.py
 
 # Create systemd service for bridge
