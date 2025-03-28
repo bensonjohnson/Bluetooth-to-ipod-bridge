@@ -87,6 +87,7 @@ else
 fi
 
 make $MAKE_ARGS
+make modules_install
 
 # Basic check if module files were created
 if ! ls *.ko &> /dev/null; then
