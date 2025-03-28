@@ -17,6 +17,7 @@ import subprocess
 import dbus
 import logging
 import signal
+import threading
 from threading import Thread, Lock
 import queue # Using queue for thread-safe communication
 
