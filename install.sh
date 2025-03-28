@@ -1,6 +1,7 @@
 #!/bin/bash
-# Bluetooth to iPod Bridge Installer (Updated)
+# Bluetooth to iPod Bridge Installer (Updated with Manual Module Install)
 # For Raspberry Pi running Raspberry Pi OS (or similar Debian-based systems)
+# Current time: Friday, March 28, 2025 at 4:58:00 PM (Nampa, Idaho, United States)
 
 set -e  # Exit immediately if a command exits with a non-zero status.
 
@@ -16,6 +17,7 @@ PROJECT_DIR="/opt/bt-ipod-bridge"
 IPOD_GADGET_DIR="/opt/ipod-gadget"
 IPOD_CLIENT_DIR="/opt/ipod"
 PYTHON_SCRIPT_NAME="bt-ipod-bridge.py" # Assumes this script is in the same dir as install.sh
+BLUETOOTH_ALIAS="Volvo-iPod-Bridge"    # Added alias here for consistency
 
 # --- Sanity Checks ---
 
@@ -87,14 +89,40 @@ else
 fi
 
 make $MAKE_ARGS
-make modules_install
 
-# Basic check if module files were created
+# Check if module files were created before attempting install
 if ! ls *.ko &> /dev/null; then
-    echo "ERROR: Failed to build kernel modules (*.ko files not found)."
+    echo "ERROR: Failed to build kernel modules (*.ko files not found after make)."
     exit 1
 fi
 echo "Kernel modules built successfully."
+
+# --- Manual Installation of Kernel Modules ---
+# Since 'make modules_install' is not available, copy manually
+KERNEL_VERSION=$(uname -r)
+# Install to the 'extra' directory, common for out-of-tree modules
+INSTALL_PATH="/lib/modules/$KERNEL_VERSION/extra"
+
+echo "    Installing modules manually to $INSTALL_PATH..."
+mkdir -p "$INSTALL_PATH"
+
+# Copy the built modules using install command (preserves permissions)
+# Use find to handle potential variations in names if any, though unlikely here
+find . -maxdepth 1 -name "*.ko" -exec install -m 644 {} "$INSTALL_PATH/" \;
+
+# Check if modules were copied (basic check)
+if ! ls "$INSTALL_PATH"/g_ipod_*.ko &> /dev/null; then
+    echo "ERROR: Failed to copy kernel modules to $INSTALL_PATH."
+    exit 1
+fi
+
+echo "    Updating module dependencies..."
+# Update the module dependency database so modprobe can find them
+depmod -a
+
+echo "Kernel modules installed successfully to $INSTALL_PATH."
+# --- End Manual Installation ---
+
 
 # --- Build Go iPod Client Application ---
 echo "[3/9] Cloning/Updating Go iPod client source..."
@@ -125,6 +153,7 @@ echo "[4/9] Configuring USB gadget mode (dtoverlay=dwc2)..."
 BOOT_CONFIG_PATH="/boot/config.txt"
 if [ ! -f "$BOOT_CONFIG_PATH" ] && [ -f "/boot/firmware/config.txt" ]; then
     BOOT_CONFIG_PATH="/boot/firmware/config.txt"
+    echo "    Detected firmware config path: $BOOT_CONFIG_PATH"
 fi
 
 if ! grep -q "^\s*dtoverlay=dwc2" "$BOOT_CONFIG_PATH"; then
@@ -265,7 +294,7 @@ WorkingDirectory=$PROJECT_DIR
 ExecStart=$PROJECT_DIR/$PYTHON_SCRIPT_NAME
 Restart=on-failure
 RestartSec=10
-# Needs root privileges for pactl, system D-Bus, modprobe checks (if needed), device access.
+# Needs root privileges for pactl, system D-Bus, module checks, device access.
 User=root
 Group=root
 # Add environment variables if needed by the script
@@ -280,8 +309,8 @@ EOF
 echo "[9/9] Enabling and reloading systemd services..."
 systemctl daemon-reload
 # Disable default user pulseaudio socket/service if they exist and might conflict
-systemctl --global disable pulseaudio.socket pulseaudio.service || true
-systemctl --user disable pulseaudio.socket pulseaudio.service || true
+systemctl --global disable pulseaudio.socket pulseaudio.service &> /dev/null || true
+systemctl --user disable pulseaudio.socket pulseaudio.service &> /dev/null || true
 # Enable the system-wide PA service and the bridge service
 systemctl enable pulseaudio.service
 systemctl enable bt-ipod-bridge.service
@@ -302,6 +331,7 @@ echo "* Check service status: sudo systemctl status pulseaudio bt-ipod-bridge"
 echo "* Check logs: sudo journalctl -u pulseaudio -f"
 echo "             sudo journalctl -u bt-ipod-bridge -f"
 echo "             sudo tail -f /var/log/bt-ipod-bridge.log" # Python script log
+echo "* Verify kernel modules loaded: lsmod | grep g_ipod"
 echo "* Verify USB gadget: lsusb (run on another machine connected to Pi OTG port)"
 echo "* Verify audio devices: pactl list sinks short && pactl list sources short"
 echo
