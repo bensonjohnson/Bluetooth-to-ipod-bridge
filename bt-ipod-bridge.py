@@ -18,7 +18,7 @@ import dbus
 import logging
 import signal
 import threading
-from threading import Thread, Lock
+from threading import Thread, Lock, Event
 import queue # Using queue for thread-safe communication
 
 # Configure logging
@@ -54,6 +54,7 @@ class BluetoothAudioReceiver:
         self.connected_device_path = None
         self.media_player_path = None
         self.media_player_iface = None
+        self.agent_process = None
         self.last_track_info = {}
         self.current_track = {
             'title': '',
@@ -98,20 +99,24 @@ class BluetoothAudioReceiver:
         logger.info("Starting Bluetooth agent thread")
         # Run bluetoothctl agent in a separate process managed by the thread
         # This avoids blocking the main script with subprocess.run
-        agent_thread = Thread(target=self._agent_process_runner, daemon=True)
-        agent_thread.start()
+        self.agent_thread = Thread(target=self._agent_process_runner, daemon=True)
+        self.agent_thread.start()
 
     def _agent_process_runner(self):
         """Runs the bluetoothctl agent commands."""
         logger.info("Bluetooth agent thread running")
         try:
             # Using Popen allows interaction if needed, though not used here
-            agent_cmd = ['bluetoothctl', 'agent', 'on', '\n', 'default-agent']
+            agent_cmd = ['bluetoothctl']
             # We don't strictly need Popen here, run might be fine
             # Using shell=True is generally discouraged, but bluetoothctl commands might need it
             # If not using shell=True, separate commands:
-            subprocess.run(['bluetoothctl', 'agent', 'on'], check=True)
-            subprocess.run(['bluetoothctl', 'default-agent'], check=True)
+            self.agent_process = subprocess.Popen(agent_cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            self.agent_process.stdin.write(b'agent on\n')
+            self.agent_process.stdin.flush()
+            self.agent_process.stdin.write(b'default-agent\n')
+            self.agent_process.stdin.flush()
+            self.agent_process.stdin.close()
             logger.info("Bluetooth agent commands executed")
             # Keep thread alive if agent needs continuous running (unlikely for default)
             # time.sleep(3600) # Example placeholder
@@ -119,6 +124,14 @@ class BluetoothAudioReceiver:
              logger.error(f"Bluetooth agent command failed: {e}")
         except Exception as e:
             logger.exception(f"Error in Bluetooth agent thread: {e}")
+
+    def stop_agent(self):
+        """Stop the Bluetooth agent process."""
+        logger.info("Stopping Bluetooth agent process...")
+        if self.agent_process and self.agent_process.poll() is None:
+            self.agent_process.terminate()
+            self.agent_process.wait()
+            logger.info("Bluetooth agent process stopped.")
 
     def check_connection_and_update_pulseaudio(self):
         """Checks for connected A2DP device and updates PulseAudio if needed."""
@@ -167,7 +180,7 @@ class BluetoothAudioReceiver:
                      self.connected_device_path = None
                      self.media_player_path = None
                      self.media_player_iface = None
-                     self._clear_pulseaudio_loopback() # Optional: clean up loopback
+                     self._clear_pulseaudio_loopback()
 
 
             return self.connected_device_mac
@@ -676,6 +689,7 @@ class BTiPodBridge:
         self.bt_receiver = BluetoothAudioReceiver()
         self.ipod_client = IPodClient()
         self.stop_event = threading.Event()
+        self.agent_stop_event = Event()
         self.sync_thread = None
         self.ipod_monitor_thread = None
         self.last_sent_track_info = {} # Track what was last sent to iPod client
@@ -708,6 +722,7 @@ class BTiPodBridge:
         """Stop all components."""
         logger.info("Stopping all components...")
         self.stop_event.set() # Signal threads to stop
+        self.agent_stop_event.set()
 
         # Stop threads first
         if self.sync_thread and self.sync_thread.is_alive():
@@ -726,6 +741,7 @@ class BTiPodBridge:
 
         # Stop external processes
         self.ipod_client.stop()
+        self.bt_receiver.stop_agent()
         # Bluetooth service is managed by systemd, usually no need to stop here unless desired
 
         # Clear PulseAudio loopback on exit? Optional.
@@ -857,6 +873,7 @@ def signal_handler(sig, frame):
     logger.warning(f"Received signal {signame} ({sig}), shutting down...")
     if bridge_instance:
         bridge_instance.stop()
+
     # Allow some time for cleanup before exiting
     time.sleep(1)
     sys.exit(0)

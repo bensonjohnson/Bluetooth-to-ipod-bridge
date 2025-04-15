@@ -275,6 +275,10 @@ EOF
 # --- Install Bridge Script & Service ---
 echo "[7/9] Creating project directory..."
 mkdir -p "$PROJECT_DIR"
+# Create log directory
+LOG_DIR="/var/log"
+mkdir -p "$LOG_DIR"
+
 
 echo "Installing Python bridge script to $PROJECT_DIR..."
 cp "$PYTHON_SCRIPT_PATH" "$PROJECT_DIR/"
@@ -292,6 +296,7 @@ Requires=pulseaudio.service bluetooth.service # Need PA and BT to function
 Type=simple
 WorkingDirectory=$PROJECT_DIR
 ExecStart=$PROJECT_DIR/$PYTHON_SCRIPT_NAME
+StandardOutput=file:$LOG_DIR/bt-ipod-bridge.log
 Restart=on-failure
 RestartSec=10
 # Needs root privileges for pactl, system D-Bus, module checks, device access.
